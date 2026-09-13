@@ -1,0 +1,8 @@
+node_modules/
+app/keys/
+__pycache__/
+*.pyc
+venv/
+.venv/
+exploit/venv/
+exploit/.venv/

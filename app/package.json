@@ -1,0 +1,12 @@
+{
+  "name": "cr0wnair-reimplementacao",
+  "version": "1.0.0",
+  "description": "Reimplementacao local do cr0wnair (Union CTF 2021), com chave RSA e flag PROPRIAS do grupo -- nao reaproveitando segredos do desafio original.",
+  "main": "app.js",
+  "scripts": { "start": "node app.js" },
+  "dependencies": {
+    "express": "^4.17.1",
+    "jpv": "2.0.1",
+    "jwt-simple": "0.5.1"
+  }
+}
