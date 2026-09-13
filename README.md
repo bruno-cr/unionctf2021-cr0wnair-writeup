@@ -6,15 +6,14 @@ Union CTF 2021, desenvolvido como avaliação (E2) da disciplina
 
 ## Membros do grupo
 
-- Thayná Marostica Machado da Silva
 - Bruno Camargo Ribeiro
 - Bruno Hiroki Nagao Anhaia
-- Gabriel Alves Moreira
-- Jonathan Choy Rivera
 - Cilene Renata Real
 - Emerson Hermann Lira dos Santos
+- Gabriel Alves Moreira
+- Jonathan Choy Rivera
 - Stephanie Maria Braga
-
+- Thayná Marostica Machado da Silva
 ---
 
 ## 1. Identificação do desafio e objetivo
@@ -28,15 +27,31 @@ com **RS256** (RSA + SHA-256), contendo o status do passageiro
 endpoint `/upgrades/flag`, revelando a flag — sem nunca ter acesso
 direto à chave privada nem à chave pública do servidor.
 
-**A cadeia do ataque tem 4 partes encadeadas:**
+Esse foi o desafio que estabelece uma integração entre os mecanismos de autenticação Web e os recursos de criptografia aplicada, evidenciando que a validação do algoritmo criptográfico, da chave empregada e da representação do token constitui uma única fronteira de confiança no processo de autenticação.
 
-1. Contornar um filtro de validação (`jpv`) para conseguir gerar
-   **múltiplos** tokens RS256 assinados pela mesma chave.
-2. Recuperar a **chave pública RSA** (o módulo `N`) a partir dessas
-   assinaturas, usando MDC (máximo divisor comum / GCD).
-3. Reconstruir a chave pública em formato utilizável (PEM).
-4. Forjar um token arbitrário, explorando uma **confusão de
-   algoritmo** (RS256 → HS256) na biblioteca de decodificação.
+**O processo acontece nas etapas:** 
+
+1. A aplicação Web disponibilizada utiliza versões desatualizadas das bibliotecas jpv e jwt-simple, apresentando possíveis vulnerabilidades decorrentes dessas dependências. 
+
+A aplicação implementa uma verificação para impedir a utilização de determinados algoritmos na assinatura dos tokens JWT. Entretanto, essa validação pode ser contornada por meio da manipulação do construtor do objeto, especificamente quando sua propriedade name coincide com o valor de name de [].constructor. 
+
+Após o contorno da validação, é possível recuperar a chave pública utilizada no processo de autenticação a partir de dois tokens JWT. 
+
+Por fim, a chave pública obtida é utilizada indevidamente como segredo para gerar uma assinatura utilizando o algoritmo HS256, de natureza simétrica, em substituição ao RS256, que emprega um mecanismo de assinatura assimétrica. 
+
+A exploração pode ser entendida em quatro etapas principais: 
+
+Obtenção do token JWT 
+A aplicação utiliza a biblioteca jpv para validar os dados enviados no endpoint /checkin. Entretanto, uma falha na validação de arrays permite contornar essa proteção. Ao fornecer um objeto manipulado no campo extras, é possível fazer a aplicação acreditar que recebeu um array válido e, ao mesmo tempo, inserir o valor sssr: "FQTU". Essa condição faz com que a aplicação gere e exponha um JWT.  
+
+Obtenção da chave pública RSA 
+ Os tokens obtidos são assinados originalmente com RS256, utilizando uma chave privada RSA. A partir de dois tokens válidos, o código explora propriedades matemáticas da assinatura RSA para calcular o módulo n da chave pública. O gcd (máximo divisor comum) entre os valores derivados das duas assinaturas permite recuperar esse módulo e, consequentemente, reconstruir a chave pública.  
+
+Confusão entre RS256 e HS256 
+O endpoint /upgrades utiliza jwt.decode(token, config.pubkey) sem restringir explicitamente o algoritmo esperado. Isso permite uma situação de algorithm confusion: em vez de verificar um token RS256 com a chave pública RSA, o servidor pode interpretar um token declarado como HS256 e utilizar a própria chave pública como segredo HMAC.  
+
+Forjamento do token e obtenção da flag 
+ Com a chave pública recuperada, é criado um novo JWT com alg: HS256 e payload contendo status: "gold". A assinatura é produzida utilizando HMAC-SHA256 e a chave pública como segredo. Como o servidor aceita essa combinação, o token falsificado é considerado válido e permite acessar /upgrades/flag. 
 
 ---
 
