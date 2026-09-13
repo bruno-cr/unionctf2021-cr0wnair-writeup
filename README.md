@@ -228,7 +228,7 @@ tentativa, um fator `93 = 3×31`). A solução: usar **4 tokens** e
 calcular o **GCD cumulativo** — fatores espúrios tendem a não se
 repetir simultaneamente em todos os pares.
 
-### 2.4 — Fechando com uma política de algoritmos permitidos (mitigação)
+### 2.5 — Fechando com uma política de algoritmos permitidos (mitigação)
 
 A causa raiz de toda a cadeia (Seção 2.2) é o servidor **confiar no
 próprio token** para decidir como verificá-lo. A correção não exige
