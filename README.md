@@ -33,11 +33,11 @@ Esse foi o desafio que estabelece uma integração entre os mecanismos de autent
 
 1. A aplicação Web disponibilizada utiliza versões desatualizadas das bibliotecas jpv e jwt-simple, apresentando possíveis vulnerabilidades decorrentes dessas dependências. 
 
-A aplicação implementa uma verificação para impedir a utilização de determinados algoritmos na assinatura dos tokens JWT. Entretanto, essa validação pode ser contornada por meio da manipulação do construtor do objeto, especificamente quando sua propriedade name coincide com o valor de name de [].constructor. 
+2. A aplicação implementa uma verificação para impedir a utilização de determinados algoritmos na assinatura dos tokens JWT. Entretanto, essa validação pode ser contornada por meio da manipulação do construtor do objeto, especificamente quando sua propriedade name coincide com o valor de name de [].constructor. 
 
-Após o contorno da validação, é possível recuperar a chave pública utilizada no processo de autenticação a partir de dois tokens JWT. 
+3. Após o contorno da validação, é possível recuperar a chave pública utilizada no processo de autenticação a partir de dois tokens JWT. 
 
-Por fim, a chave pública obtida é utilizada indevidamente como segredo para gerar uma assinatura utilizando o algoritmo HS256, de natureza simétrica, em substituição ao RS256, que emprega um mecanismo de assinatura assimétrica. 
+4. Por fim, a chave pública obtida é utilizada indevidamente como segredo para gerar uma assinatura utilizando o algoritmo HS256, de natureza simétrica, em substituição ao RS256, que emprega um mecanismo de assinatura assimétrica. 
 
 A exploração pode ser entendida em quatro etapas principais: 
 
