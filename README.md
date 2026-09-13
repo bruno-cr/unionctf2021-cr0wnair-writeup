@@ -310,7 +310,45 @@ Diferentemente do `RS256`, o `HS256` utiliza uma única chave secreta tanto para
 
 ---
 
-## 4. Ambiente, dependências e versões
+## 4. Fluxograma de encadeamento das vulnerabilidades
+
+Para facilitar a visualização de como as vulnerabilidades se conectam desde o primeiro acesso até a captura da flag, o diagrama abaixo visa mostrar as etapas sequenciais da exploração:
+
+```text
+
+[ Aplicação Web em Node.js ]
+     │
+     ▼
+[ Acessar endpoint /checkin ]
+     │
+     ▼
+[ Contornar validação JPV ]
+     │
+     ▼
+[ Obter múltiplos JWTs válidos (4 tokens) ]
+     │
+     ▼
+[ Recuperar módulo N via GCD cumulativo ]
+     │
+     ▼
+[ Reconstruir chave pública (PEM) ]
+     │
+     ▼
+[ Alterar alg para HS256 ]
+     │
+     ▼
+[ Forjar JWT com status gold ]
+     │
+     ▼
+[ Acessar área /upgrades/flag ]
+     │
+     ▼
+[ Obter flag ]
+```
+
+---
+
+## 5. Ambiente, dependências e versões
 
 ### A aplicação-alvo (Node.js)
 
@@ -340,7 +378,7 @@ original):
 
 ---
 
-## 5. Estrutura do repositório
+## 6. Estrutura do repositório
 
 ```
 cr0wnair-writeup/
@@ -367,7 +405,7 @@ cr0wnair-writeup/
 
 ---
 
-## 6. Origem dos artefatos e adaptações do grupo
+## 7. Origem dos artefatos e adaptações do grupo
 
 - **Código-fonte da aplicação:** reconstruído a partir do que está
   publicamente documentado nos write-ups (ret2school, Kalmarunionen,
@@ -386,7 +424,7 @@ cr0wnair-writeup/
 
 ---
 
-## 7. Como rodar (instruções de ponta a ponta)
+## 8. Como rodar (instruções de ponta a ponta)
 
 Requer dois terminais abertos simultaneamente: um para o servidor,
 outro para o ataque.
@@ -447,7 +485,7 @@ python ataque_real.py
 
 ---
 
-## 8. Explicação das etapas do código
+## 9. Explicação das etapas do código
 
 ### `rsa_jwt_lib.py` (módulo compartilhado)
 
@@ -500,9 +538,9 @@ corrigida, sem precisar do servidor Node.js rodando.
 
 ---
 
-## 9. Evidência de reprodução
+## 10. Evidência de reprodução
 
-### 9.1 — Simulação local (`demo_cr0wnair_attack.py`)
+### 10.1 — Simulação local (`demo_cr0wnair_attack.py`)
 
 ```
 Chave gerada: N tem 511 bits, e=65537
@@ -523,7 +561,7 @@ tempo total: 6.95 s
 próprio):** mesma sequência, `N` recuperado batendo exatamente,
 `tempo total: 6.3 s`.
 
-### 9.2 — Ataque real, contra o servidor Node.js (`ataque_real.py`)
+### 10.2 — Ataque real, contra o servidor Node.js (`ataque_real.py`)
 
 Executado com o servidor de verdade rodando (`app.js`), gerando os
 próprios artefatos (`gerar_ambiente.js`):
@@ -570,7 +608,7 @@ aplicação Node.js verdadeira, reproduzida em dois sistemas
 operacionais diferentes — confirma que a reprodução funciona de
 ponta a ponta, não apenas em teoria.
 
-### 9.3 — Mitigação: mesmo token forjado, contra o endpoint corrigido
+### 10.3 — Mitigação: mesmo token forjado, contra o endpoint corrigido
 
 Executando `ataque_real.py` (versão estendida) contra o servidor
 real, com a rota `/upgrades-seguro/flag` (Seção 2.4) montada em
@@ -598,7 +636,7 @@ resultado idêntico.
 
 ---
 
-## 10. Contribuições próprias do grupo
+## 11. Contribuições próprias do grupo
 
 - **Reimplementação completa em Python puro**, sem depender da
   ferramenta pública já existente para essa CVE (`rsa_sign2n`) —
@@ -633,7 +671,7 @@ resultado idêntico.
 
 ---
 
-## 11. Nota sobre divergência nos materiais da disciplina
+## 12. Nota sobre divergência nos materiais da disciplina
 
 A coluna "Escopo" do desafio, na planilha da disciplina, menciona
 "conservar `fast-json-stringify` e `jsonwebtoken` nas versões
@@ -651,7 +689,7 @@ eram de fato esperadas.
 
 ---
 
-## 12. Referências
+## 13. Referências
 
 - Código-fonte e mecânica do desafio: write-up de **ret2school**,
   *"[UnionCTF 2021 - web] Cr0wnAir"* — inclui o código-fonte
@@ -672,3 +710,7 @@ eram de fato esperadas.
 - Biblioteca vulnerável: **`jpv`** (versões testadas: 1.5.1 a 3.1.2;
   bypass confirmado até a 2.0.1, corrigido a partir da 2.1.0).
 - Biblioteca vulnerável: **`jwt-simple`** versão 0.5.1.
+
+---
+
+## 14. Link da apresentação
