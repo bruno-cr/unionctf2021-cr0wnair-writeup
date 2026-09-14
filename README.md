@@ -35,7 +35,7 @@ Esse foi o desafio que estabelece uma integração entre os mecanismos de autent
 
 2. A aplicação implementa uma verificação para impedir a utilização de determinados algoritmos na assinatura dos tokens JWT. Entretanto, essa validação pode ser contornada por meio da manipulação do construtor do objeto, especificamente quando sua propriedade `name` coincide com o valor de `name` de `[].constructor`. 
 
-3. Após o contorno da validação, é possível recuperar a chave pública utilizada no processo de autenticação a partir de dois tokens JWT. 
+3. Após o contorno da validação, é possível recuperar a chave pública utilizada no processo de autenticação a partir de quatro tokens JWT. 
 
 4. Por fim, a chave pública obtida é utilizada indevidamente como segredo para gerar uma assinatura utilizando o algoritmo `HS256`, de natureza simétrica, em substituição ao `RS256`, que emprega um mecanismo de assinatura assimétrica. 
 
@@ -45,7 +45,7 @@ Esse foi o desafio que estabelece uma integração entre os mecanismos de autent
 A aplicação utiliza a biblioteca jpv para validar os dados enviados no `endpoint /checkin`. Entretanto, uma falha na validação de arrays permite contornar essa proteção. Ao fornecer um objeto manipulado no campo extras, é possível fazer a aplicação acreditar que recebeu um array válido e, ao mesmo tempo, inserir o valor `sssr: "FQTU"`. Essa condição faz com que a aplicação gere e exponha um JWT.  
 
 **2.Obtenção da chave pública RSA:**
-Os tokens obtidos são assinados originalmente com `RS256`, utilizando uma chave privada RSA. A partir de dois tokens válidos, o código explora propriedades matemáticas da assinatura RSA para calcular o módulo `n` da chave pública. O `gcd` (máximo divisor comum) entre os valores derivados das duas assinaturas permite recuperar esse módulo e, consequentemente, reconstruir a chave pública.  
+Os tokens obtidos são assinados originalmente com `RS256`, utilizando uma chave privada RSA. A partir de quatro tokens válidos, o código explora propriedades matemáticas da assinatura RSA para calcular o módulo `n` da chave pública. O `gcd` (máximo divisor comum) entre os valores derivados das duas assinaturas permite recuperar esse módulo e, consequentemente, reconstruir a chave pública.  
 
 **3.Confusão entre RS256 e HS256:**
 O `endpoint/upgrades` utiliza `jwt.decode(token, config.pubkey)` sem restringir explicitamente o algoritmo esperado. Isso permite uma situação de algorithm confusion: em vez de verificar um token `RS256` com a chave pública RSA, o servidor pode interpretar um token declarado como `HS256` e utilizar a própria chave pública como segredo HMAC.  
