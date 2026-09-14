@@ -61,6 +61,35 @@ O ataque combina uma falha de validação de entrada no jpv com uma falha de val
 
 O ponto de segurança mais importante é que não existe apenas uma falha isolada: a exploração depende do encadeamento de vulnerabilidades. O jpv permite chegar aos tokens, enquanto a configuração inadequada do `jwt-simple` permite transformar a chave pública em um mecanismo para forjar uma nova assinatura.
 
+Antes de detalhar cada etapa (2.1 a 2.4), vale situar **quando** os dois tipos de token aparecem na linha do tempo do ataque — essa distinção é a base para entender tudo que segue:
+
+```
+1. Atacante envia o bypass do jpv pro servidor (4 vezes, ffp diferente)
+2. Servidor responde com um token RS256 ──────────► TOKEN LEGÍTIMO (x4)
+                                                     (status sempre "bronze")
+3. Atacante usa os 4 tokens legítimos para calcular
+   o MDC entre eles → descobre a chave pública (N)
+
+4. Atacante MONTA um token novo, escrevendo
+   "status: gold" e assinando com HS256, usando
+   a chave que acabou de descobrir ──────────────► TOKEN FORJADO (x1)
+
+5. Atacante envia esse token forjado pro servidor
+   (endpoint /upgrades/flag)
+6. Servidor verifica — e aceita, achando que é RS256
+   de verdade, mas na real é HS256 disfarçado
+7. Servidor devolve a flag
+```
+
+| | Token **legítimo** (RS256) | Token **forjado** (HS256) |
+|---|---|---|
+| Quantos | 4 | 1 |
+| Quem cria | O servidor, de verdade | O atacante |
+| Quando aparece | No início, como resposta ao bypass (passo 2) | No final, depois de já ter a chave (passo 4) |
+| Para que serve | É só matéria-prima — usado para calcular a chave via MDC, não dá acesso sozinho | É o produto final do ataque — é ele que engana o servidor e libera a flag |
+
+Os 4 tokens legítimos não dão acesso a nada sozinhos — eles só fornecem a "munição matemática" (a chave). Só depois de ter essa chave é que o único token forjado é fabricado, e é ele quem realmente quebra a segurança do servidor.
+
 ### 2.1 - Vulnerabilidade JPV 
 
 A biblioteca jpv é utilizada para realizar a validação das entradas fornecidas pelo usuário com base em padrões previamente estabelecidos. 
