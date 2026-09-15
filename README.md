@@ -19,11 +19,11 @@ Union CTF 2021, desenvolvido como avaliação (E2) da disciplina
 
 ## 1. Identificação do desafio e objetivo
 
-**cr0wnair** é uma aplicação Node.js de check-in de voo. Ao completar um check-in, o servidor emite um **JWT** (JSON Web Token) assinado com **RS256** (RSA + SHA-256), contendo o status do passageiro(`bronze` ou `gold`).
+**cr0wnair** é uma aplicação Node.js de check-in de voo. Ao completar um check-in, o servidor emite um **JWT** (JSON Web Token) assinado com **RS256** (RSA + SHA-256), contendo o status do passageiro (`bronze` ou `gold`).
 
 **Objetivo:** obter um JWT com `{"status": "gold"}` aceito pelo endpoint `/upgrades/flag`, revelando a flag — sem nunca ter acesso direto à chave privada nem à chave pública do servidor.
 
-Esse foi o desafio que estabelece uma integração entre os mecanismos de autenticação Web e os recursos de criptografia aplicada, evidenciando que a validação do algoritmo criptográfico, da chave empregada e da representação do token constitui uma única fronteira de confiança no processo de autenticação.
+O desafio estabelece uma integração entre os mecanismos de autenticação Web e os recursos de criptografia aplicada, evidenciando que a validação do algoritmo criptográfico, da chave empregada e da representação do token constitui uma única fronteira de confiança no processo de autenticação.
 
 **O processo acontece nas etapas:** 
 
@@ -35,16 +35,16 @@ Esse foi o desafio que estabelece uma integração entre os mecanismos de autent
 
 4. Por fim, a chave pública obtida é utilizada indevidamente como segredo para gerar uma assinatura utilizando o algoritmo `HS256`, de natureza simétrica, em substituição ao `RS256`, que emprega um mecanismo de assinatura assimétrica. 
 
-**Exploração cada etapa:** 
-
+**Exploração** 
+ 
 **1. Obtenção do token JWT:** 
-A aplicação utiliza a biblioteca jpv para validar os dados enviados no `endpoint /checkin`. Entretanto, uma falha na validação de arrays permite contornar essa proteção. Ao fornecer um objeto manipulado no campo extras, é possível fazer a aplicação acreditar que recebeu um array válido e, ao mesmo tempo, inserir o valor `sssr: "FQTU"`. Essa condição faz com que a aplicação gere e exponha um JWT.  
-
-**2.Obtenção da chave pública RSA:**
+A aplicação utiliza a biblioteca jpv para validar os dados enviados no endpoint `/checkin`. Entretanto, uma falha na validação de arrays permite contornar essa proteção. Ao fornecer um objeto manipulado no campo extras, é possível fazer a aplicação acreditar que recebeu um array válido e, ao mesmo tempo, inserir o valor `sssr: "FQTU"`. Essa condição faz com que a aplicação gere e exponha um JWT.  
+ 
+**2. Obtenção da chave pública RSA:**
 Os tokens obtidos são assinados originalmente com `RS256`, utilizando uma chave privada RSA. A partir de quatro tokens válidos, o código explora propriedades matemáticas da assinatura RSA para calcular o módulo `n` da chave pública. O `gcd` (máximo divisor comum) entre os valores derivados das duas assinaturas permite recuperar esse módulo e, consequentemente, reconstruir a chave pública.  
-
-**3.Confusão entre RS256 e HS256:**
-O `endpoint/upgrades` utiliza `jwt.decode(token, config.pubkey)` sem restringir explicitamente o algoritmo esperado. Isso permite uma situação de _algorithm confusion_: em vez de verificar um token `RS256` com a chave pública RSA, o servidor pode interpretar um token declarado como `HS256` e utilizar a própria chave pública como segredo HMAC.  
+ 
+**3. Confusão entre RS256 e HS256:**
+O `endpoint /upgrades` utiliza `jwt.decode(token, config.pubkey)` sem restringir explicitamente o algoritmo esperado. Isso permite uma situação de _algorithm confusion_: em vez de verificar um token `RS256` com a chave pública RSA, o servidor pode interpretar um token declarado como `HS256` e utilizar a própria chave pública como segredo HMAC.  
 
 **4.Forjamento do token e obtenção da flag:** 
 Com a chave pública recuperada, é criado um novo JWT com `alg:HS256` e payload contendo `status:"gold"`. A assinatura é produzida utilizando HMAC-SHA256 e a chave pública como segredo. Como o servidor aceita essa combinação, o token falsificado é considerado válido e permite acessar `/upgrades/flag`. 
@@ -98,17 +98,17 @@ const pattern = {
   passport: /^[0-9]{9}$/,
   ffp: /^(|CA[0-9]{8})$/,
   extras: [
-      {sssr: /^(BULK|UMNR|VGML)$/},
-    ],
-  };
+    { sssr: /^(BULK|UMNR|VGML)$/ },
+  ],
+};
 ```
 Entretanto, na linha 42 do arquivo `checkin.js`, há uma verificação que avalia se o campo `data["extras"][e]["sssr"]` possui o valor `"FQTU"`. Quando essa condição é satisfeita, a aplicação gera e expõe um token JWT: 
 
 ```javascript
-for(e in data["extras"]) { 
-  if (data["extras"][e]["sssr"] && data["extras"][e]["sssr"] === "FQTU") { 
-    var token = createToken(data["passport"], data["ffp"]); 
-    var response = {msg: "You have successfully checked in. Thank you for being a Cr0wnAir frequent flyer. Your loyalty has been rewarded and you have been marked for an upgrade, please visit the upgrades portal.", "token": token}; 
+for (const e in data['extras']) {
+  if (data['extras'][e]['sssr'] && data['extras'][e]['sssr'] === 'FQTU') {
+    var token = createToken(data['passport'], data['ffp']);
+    var response = { msg: 'Checked in and marked for upgrade.', token: token };
   }
 }
 ```
@@ -120,13 +120,13 @@ Foi utilizado o payload:
 
 ```json
 {
-  "firstName": "Algum",
-  "lastName": "Nome",
+  "firstName": "aa",
+  "lastName": "aaa",
   "passport": "123456789",
   "ffp": "CA12345678",
   "extras": {
-    "x": {
-      "sssr": "FQTU" 
+    "a": {
+      "sssr": "FQTU"
     },
     "constructor": {
       "name": "Array"
@@ -157,8 +157,8 @@ function getLoyaltyStatus(req, res, next) {
   if (req.headers.authorization) { 
     let token = req.headers.authorization.split(" ")[1]; 
     try { 
-      var decoded = jwt.decode(token, config.pubkey); 
-    } catch { 
+      var decoded = jwt.decode(token, config.pubkey); // sem especificar o algoritmo -- o bug
+    } catch (err) { 
       return res.json({ msg: 'Token is not valid.' }); 
     } 
     res.locals.token = decoded; 
@@ -169,7 +169,7 @@ function getLoyaltyStatus(req, res, next) {
 
 Em contrapartida, no arquivo `upgrade.js`, a função `jwt.decode(token, key)` é utilizada sem que o algoritmo de assinatura seja explicitamente restringido. Nesse processo, a chave fornecida corresponde a `config.pubkey`, ou seja, à chave pública utilizada na verificação dos tokens. 
 
-Na versão `jwt-simple@0.5.2`, quando o token especifica `HS256` no campo `alg`, a biblioteca interpreta a chave fornecida como um segredo simétrico e realiza a verificação por meio do `HMAC-SHA256 . Dessa forma, não há uma validação adequada da compatibilidade entre o algoritmo declarado no token e o tipo de chave utilizado na verificação. 
+Na versão `jwt-simple@0.5.2`, quando o token especifica `HS256` no campo `alg`, a biblioteca interpreta a chave fornecida como um segredo simétrico e realiza a verificação por meio do `HMAC-SHA256. Dessa forma, não há uma validação adequada da compatibilidade entre o algoritmo declarado no token e o tipo de chave utilizado na verificação. 
 
 Consequentemente, caso a chave pública seja conhecida ou possa ser reconstruída, torna-se possível criar um JWT cujo algoritmo declarado seja `HS256`  e utilizar a própria chave pública, em formato PEM, como segredo para gerar a assinatura `HMAC-SHA256`. Durante a validação, o servidor utilizará a mesma config.pubkey e seguirá o algoritmo indicado no cabeçalho do token, permitindo que a assinatura seja considerada válida. Esse comportamento caracteriza uma confusão de algoritmos `(algorithm confusion)`, na qual uma chave destinada à verificação de uma assinatura assimétrica `(RS256)` é reutilizada como segredo em um mecanismo de assinatura simétrica `(HS256)`. 
 
@@ -179,22 +179,21 @@ Na etapa seguinte, os quatro tokens obtidos anteriormente são utilizados para a
 
 A verificação é feita com `sig^e == pt (mod n)`. 
 
-Para determinar o valor do módulo `n` e, consequentemente, reconstruir a chave pública original, utiliza-se a função auxiliar `get_magic()`, avaliando diferentes valores possíveis para o expoente público `e`. Nesse caso, foram considerados os valores mais comuns, até identificar o valor `65537`, amplamente utilizado em chaves `RSA`. 
+Para determinar o valor do módulo `n` e, consequentemente, reconstruir a chave pública original, utiliza-se a função auxiliar `magic()`, avaliando diferentes valores possíveis para o expoente público `e`. Nesse caso, foram considerados os valores mais comuns, até identificar o valor `65537`, amplamente utilizado em chaves `RSA`. 
+
+```python
+def magic(token: str, e: int, n_len_bytes: int) -> gmpy2.mpz:  
+    header_b64, payload_b64, sig_b64 = token.split(".") 
+    sig_int = gmpy2.mpz(bytes_to_long(b64url_decode(sig_b64))) 
+    signing_input = f"{header_b64}.{payload_b64}".encode() 
+    padded_int = gmpy2.mpz(bytes_to_long(pkcs1_v1_5_encode(signing_input, n_len_bytes))) 
+    return gmpy2.mpz(pow(sig_int, e)) - padded_int
+```
+
+Dessa forma, obtém-se um valor que corresponde a um múltiplo desconhecido do módulo, representado por `k·n`, em que `k` é um número inteiro. A partir de quatro tokens distintos, é possível calcular o máximo divisor comum (GCD) dos valores obtidos. Esse cálculo permite determinar o módulo `n` e, consequentemente, reconstruir a chave pública RSA: 
 
 ```
-def get_magic(jwt_token: str, e: int)` -> gmpy2.mpz:  
-    header, payload, signature = jwt_token.split(".") 
-    raw_signature = urlsafe_b64decode(f"{signature}==")  
-    raw_signature_int = gmpy2.mpz(bytes_to_long(raw_signature)) 
-    padded_msg = pkcs1_v1_5_encode(f"{header}.{payload}".encode(), len(raw_signature)) 
-	   padded_int = gmpy2.mpz(bytes_to_long(padded_msg)) 
-   	return gmpy2.mpz(pow(raw_signature_int, e) - padded_int)
-```
-
-Dessa forma, obtém-se um valor que corresponde a um múltiplo desconhecido do módulo, representado por `k·n`, em que `k` é um número inteiro. A partir de dois tokens distintos, é possível calcular o máximo divisor comum (GCD) dos valores obtidos. Esse cálculo permite determinar o módulo `n` e, consequentemente, reconstruir a chave pública RSA: 
-
-```
-pubkey = RSA.construct((int(N), int(e)))`
+pubkey = RSA.construct((int(N), int(e)))
 pem_rsa = pubkey.export_key() 
 print("\nChave pública PEM:") 
 print(pem_rsa) 
@@ -228,7 +227,7 @@ A biblioteca `jwt-simple` usa o algoritmo **declarado no header do próprio toke
 Se o atacante muda o header para `"alg":"HS256"` e assina o token usando a **chave pública** como se fosse o segredo HMAC, o servidor
 — ao decodificar — usa essa mesma chave pública, mas agora como segredo HMAC, e a verificação **bate**. É a vulnerabilidade catalogada como **CVE-2017-11424**.
 
-**A condição que falta:** o atacante precisa conhecer a chave pública — e ela nunca é exposta diretamente pela aplicação. Daí a necessidade da Seção 2.3.
+**A condição que falta:** o atacante precisa conhecer a chave pública — e ela nunca é exposta diretamente pela aplicação. Daí a necessidade da Seção 2.4.
 
 ### 2.4 Recuperando a chave pública via MDC (GCD)
 
@@ -241,7 +240,7 @@ assinaturas, o GCD pode trazer um **fator espúrio extra** compartilhado por coi
 
 ### 2.5 Fechando com uma política de algoritmos permitidos (mitigação)
 
-A causa raiz de toda a cadeia (Seção 2.2) é o servidor **confiar no próprio token** para decidir como verificá-lo. A correção não exige trocar de biblioteca — o `jwt-simple` já aceita um algoritmo forçado
+A causa raiz de toda a cadeia (Seção 2.3) é o servidor **confiar no próprio token** para decidir como verificá-lo. A correção não exige trocar de biblioteca — o `jwt-simple` já aceita um algoritmo forçado
 como argumento:
 
 ```javascript
@@ -262,13 +261,20 @@ Passar `'RS256'` como 4º argumento faz esse valor **vencer** o que está escrit
 token forjado com `alg: HS256` é avaliado como se fosse RS256, a assinatura HMAC forjada falha na verificação RSA, e o token é rejeitado — **antes** de qualquer possibilidade de confusão de algoritmo.
 
 Implementamos essa correção como uma rota **paralela**
-(`/upgrades-seguro/flag`), ao lado da vulnerável (`/upgrades/flag`), para poder comparar o comportamento das duas contra o **mesmo** token forjado (evidência na Seção 9.3).
+(`/upgrades-seguro/flag`), ao lado da vulnerável (`/upgrades/flag`), para poder comparar o comportamento das duas contra o **mesmo** token forjado (evidência na Seção 10.3).
 
 ---
 
 ## 3. Referencial Teórico
 
-**3.1 RS256:**
+### 3.1 JSON Web Token (JWT)
+
+- **Estrutura de um JWT:** `header.payload.assinatura`, cada parte
+  em Base64url.
+
+### 3.2 Algoritmos de Assinatura (RS256 vs HS256)
+
+**RS256:**
 
 RS256 é um algoritmo utilizado para assinar tokens JWT, garantindo que o conteúdo do token não seja alterado sem que isso seja detectado. 
 O nome pode ser entendido como: 
@@ -279,11 +285,12 @@ Assim, `RS256 = RSA + SHA-256`.
 
 Como funciona? 
 
-O RS256 utiliza um par de chaves: 
+O RS256 utiliza um par de chaves:
+
 `Chave privada`: utilizada para assinar o JWT.  
 `Chave pública`: utilizada para verificar a assinatura. 
 
-**3.2 HS256:** 
+**HS256:** 
 
 É um algoritmo utilizado para assinar tokens JWT, garantindo a integridade e autenticidade do conteúdo do token. 
 
@@ -295,20 +302,14 @@ O nome pode ser entendido assim:
 
 Diferentemente do `RS256`, o `HS256` utiliza uma única chave secreta tanto para gerar quanto para verificar a assinatura. 
 
+### 3.3 Criptografia RSA e PKCS#1 v1.5
 
-**abaixo parte do Bruno que eu não apaguei**
+- **RSA (nível conceitual):** chave pública `(N, e)`, chave privada `d`; assinar é `mensagem^d mod N`, verificar é `assinatura^e mod N`.
+- **PKCS#1 v1.5:** formatação aplicada à mensagem antes de assinar com RSA — inclui um identificador fixo do algoritmo de hash (SHA-256) e um preenchimento de bytes `0xFF`.
 
-- **Estrutura de um JWT:** `header.payload.assinatura`, cada parte
-  em Base64url.
-- **RSA (nível conceitual):** chave pública `(N, e)`, chave privada
-  `d`; assinar é `mensagem^d mod N`, verificar é `assinatura^e mod N`.
-- **PKCS#1 v1.5:** formatação aplicada à mensagem antes de assinar
-  com RSA — inclui um identificador fixo do algoritmo de hash
-  (SHA-256) e um preenchimento de bytes `0xFF`.
-- **MDC/GCD aplicado a criptoanálise:** mesmo "espírito" do CRT
-  usado no desafio Share (E1) — usar múltiplas equações relacionadas
-  para extrair um segredo, mas aqui via máximo divisor comum em vez
-  de reconstrução por congruências.
+### 3.4 MDC/GCD na Criptoanálise
+
+- **MDC/GCD aplicado a criptoanálise:** mesmo "espírito" do CRT usado no desafio Share (E1) — usar múltiplas equações relacionadas para extrair um segredo, mas aqui via máximo divisor comum em vez de reconstrução por congruências.
 
 ---
 
@@ -528,9 +529,9 @@ demonstrar o ataque sem precisar do Node.js rodando.
 - Reaproveita `rsa_jwt_lib` para recuperar `N`, montar o PEM, forjar
   o token, e testa o **mesmo** token forjado contra dois endpoints:
   `/upgrades/flag` (vulnerável) e `/upgrades-seguro/flag`
-  (corrigido) — evidência lado a lado na Seção 9.3.
+  (corrigido) — evidência lado a lado na Seção 10.3.
 
-### `routes/upgrades_seguro.js` (mitigação, Seção 2.4)
+### `routes/upgrades_seguro.js` (mitigação, Seção 2.5)
 
 Idêntica a `upgrades.js`, com uma única linha alterada: o algoritmo
 é passado explicitamente para `jwt.decode()`, em vez de deixar o
@@ -620,7 +621,7 @@ ponta a ponta, não apenas em teoria.
 ### 10.3 — Mitigação: mesmo token forjado, contra o endpoint corrigido
 
 Executando `ataque_real.py` (versão estendida) contra o servidor
-real, com a rota `/upgrades-seguro/flag` (Seção 2.4) montada em
+real, com a rota `/upgrades-seguro/flag` (Seção 2.5) montada em
 paralelo à vulnerável:
 
 ```
@@ -635,7 +636,7 @@ Resposta do endpoint CORRIGIDO (/upgrades-seguro/flag) ao MESMO token forjado:
 diferença é a linha `jwt.decode(token, config.pubkey, false,
 'RS256')` na rota corrigida. Isso comprova que a causa raiz da
 vulnerabilidade é especificamente a ausência de uma política de
-algoritmos permitidos, e que a correção proposta (Seção 2.4) resolve
+algoritmos permitidos, e que a correção proposta (Seção 2.5) resolve
 exatamente esse problema, sem quebrar o fluxo legítimo (tokens
 RS256 reais continuam sendo aceitos normalmente).
 
@@ -673,7 +674,7 @@ resultado idêntico.
   Windows), por dois membros diferentes do grupo, de forma
   independente.
 - **Mitigação implementada e testada lado a lado com a
-  vulnerabilidade** (Seção 2.4 e 9.3) — não apenas descrita em
+  vulnerabilidade** (Seção 2.5 e 10.3) — não apenas descrita em
   texto: uma rota corrigida real (`upgrades_seguro.js`) rodando no
   mesmo servidor, comprovando que o mesmo ataque que funciona contra
   a rota original falha contra a corrigida.
