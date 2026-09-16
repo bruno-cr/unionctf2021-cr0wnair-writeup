@@ -1,8 +1,8 @@
-# Union CTF 2021 — cr0wnair (Web)
+# Union CTF 2021 - cr0wnair (Web)
 
 Write-up e reprodução do desafio **cr0wnair**, categoria Web do
 Union CTF 2021, desenvolvido como avaliação (E2) da disciplina
-**Segurança Cibernética (CCO-04.2.01)** — PPGCC, UFSCar.
+**Segurança Cibernética (CCO-04.2.01)** - PPGCC, UFSCar.
 
 ## Membros do grupo
 
@@ -19,35 +19,29 @@ Union CTF 2021, desenvolvido como avaliação (E2) da disciplina
 
 ## 1. Identificação do desafio e objetivo
 
+### 1.1 Contexto e Objetivo
+
 **cr0wnair** é uma aplicação Node.js de check-in de voo. Ao completar um check-in, o servidor emite um **JWT** (JSON Web Token) assinado com **RS256** (RSA + SHA-256), contendo o status do passageiro (`bronze` ou `gold`).
 
-**Objetivo:** obter um JWT com `{"status": "gold"}` aceito pelo endpoint `/upgrades/flag`, revelando a flag — sem nunca ter acesso direto à chave privada nem à chave pública do servidor.
+**Objetivo:** obter um JWT com `{"status": "gold"}` aceito pelo endpoint `/upgrades/flag`, revelando a flag - sem nunca ter acesso direto à chave privada nem à chave pública do servidor.
 
 O desafio estabelece uma integração entre os mecanismos de autenticação Web e os recursos de criptografia aplicada, evidenciando que a validação do algoritmo criptográfico, da chave empregada e da representação do token constitui uma única fronteira de confiança no processo de autenticação.
 
-**O processo acontece nas etapas:** 
+### 1.2 Visão Geral da Exploração
 
-1. A aplicação Web disponibilizada utiliza versões desatualizadas das bibliotecas `jpv` e `jwt-simple`, apresentando possíveis vulnerabilidades decorrentes dessas dependências. 
+O ataque explora vulnerabilidades em bibliotecas desatualizadas (`jpv` e `jwt-simple`), encadeando falhas lógicas e matemáticas nas seguintes etapas:
 
-2. A aplicação implementa uma verificação para impedir a utilização de determinados algoritmos na assinatura dos tokens JWT. Entretanto, essa validação pode ser contornada por meio da manipulação do construtor do objeto, especificamente quando sua propriedade `name` coincide com o valor de `name` de `[].constructor`. 
+**1. Contorno da Validação e Obtenção de Tokens (`jpv`):** 
+A aplicação utiliza a biblioteca `jpv` para validar os dados enviados no endpoint `/checkin`. Uma falha na validação de arrays permite contornar essa proteção manipulando o construtor do objeto (quando a propriedade `name` coincide com o valor de `[].constructor.name`). Ao forçar o valor `sssr: "FQTU"`, a aplicação emite tokens JWT autênticos.
 
-3. Após o contorno da validação, é possível recuperar a chave pública utilizada no processo de autenticação a partir de quatro tokens JWT. 
+**2. Recuperação da chave pública RSA:**
+Os tokens obtidos são assinados originalmente com `RS256`, utilizando uma chave privada RSA. A partir de quatro tokens válidos, o código explora propriedades matemáticas da assinatura RSA para calcular o módulo `n` da chave pública. O `gcd` (máximo divisor comum) entre os valores derivados dessas assinaturas permite recuperar o módulo e, consequentemente, reconstruir a chave pública.
 
-4. Por fim, a chave pública obtida é utilizada indevidamente como segredo para gerar uma assinatura utilizando o algoritmo `HS256`, de natureza simétrica, em substituição ao `RS256`, que emprega um mecanismo de assinatura assimétrica. 
+**3. Confusão de Algoritmos (Algorithm Confusion):**
+O `endpoint /upgrades` utiliza `jwt.decode(token, config.pubkey)` (via `jwt-simple`) sem restringir explicitamente o algoritmo esperado. Isso cria vulnerabilidade, pois, em vez de verificar obrigatoriamente um token `RS256` com a chave pública RSA, o servidor utiliza o algoritmo declarado via payload.
 
-**Exploração** 
- 
-**1. Obtenção do token JWT:** 
-A aplicação utiliza a biblioteca jpv para validar os dados enviados no endpoint `/checkin`. Entretanto, uma falha na validação de arrays permite contornar essa proteção. Ao fornecer um objeto manipulado no campo extras, é possível fazer a aplicação acreditar que recebeu um array válido e, ao mesmo tempo, inserir o valor `sssr: "FQTU"`. Essa condição faz com que a aplicação gere e exponha um JWT.  
- 
-**2. Obtenção da chave pública RSA:**
-Os tokens obtidos são assinados originalmente com `RS256`, utilizando uma chave privada RSA. A partir de quatro tokens válidos, o código explora propriedades matemáticas da assinatura RSA para calcular o módulo `n` da chave pública. O `gcd` (máximo divisor comum) entre os valores derivados das duas assinaturas permite recuperar esse módulo e, consequentemente, reconstruir a chave pública.  
- 
-**3. Confusão entre RS256 e HS256:**
-O `endpoint /upgrades` utiliza `jwt.decode(token, config.pubkey)` sem restringir explicitamente o algoritmo esperado. Isso permite uma situação de _algorithm confusion_: em vez de verificar um token `RS256` com a chave pública RSA, o servidor pode interpretar um token declarado como `HS256` e utilizar a própria chave pública como segredo HMAC.  
-
-**4.Forjamento do token e obtenção da flag:** 
-Com a chave pública recuperada, é criado um novo JWT com `alg:HS256` e payload contendo `status:"gold"`. A assinatura é produzida utilizando HMAC-SHA256 e a chave pública como segredo. Como o servidor aceita essa combinação, o token falsificado é considerado válido e permite acessar `/upgrades/flag`. 
+**4. Forjamento do token e obtenção da flag:** 
+O atacante cria um novo JWT com `alg: HS256` e payload `status: "gold"`, utilizando a chave pública  recuperada como se fosse um segredo HMAC simétrico. Como o servidor interpreta o token como `HS256` e aplica a mesma chave pública para a verificação, a assinatura forjada é considerada válida, revelando a flag em `/upgrades/flag`. 
 
 ---
 
@@ -57,7 +51,7 @@ O ataque combina uma falha de validação de entrada na biblioteca `jpv` com uma
 
 O ponto de segurança mais importante é que não existe apenas uma falha isolada: a exploração depende do encadeamento de vulnerabilidades. A vulnerabilidade do `jpv` permite chegar aos tokens, enquanto a configuração inadequada do `jwt-simple` permite transformar a chave pública em um mecanismo para forjar uma nova assinatura.
 
-Antes de detalhar cada etapa (2.1 a 2.4), vale situar **quando** os dois tipos de token aparecem na linha do tempo do ataque — essa distinção é a base para entender tudo que segue:
+Antes de detalhar cada etapa (2.1 a 2.4), vale situar **quando** os dois tipos de token aparecem na linha do tempo do ataque - essa distinção é a base para entender tudo que segue:
 
 ```
 1. Atacante envia o bypass do jpv pro servidor (4 vezes, ffp diferente)
@@ -71,7 +65,7 @@ Antes de detalhar cada etapa (2.1 a 2.4), vale situar **quando** os dois tipos d
 
 5. Atacante envia esse token forjado pro servidor
    (endpoint /upgrades/flag)
-6. Servidor verifica — e aceita, achando que é RS256
+6. Servidor verifica e aceita, achando que é RS256
    de verdade, mas na real é HS256 disfarçado
 7. Servidor devolve a flag
 ```
@@ -81,11 +75,11 @@ Antes de detalhar cada etapa (2.1 a 2.4), vale situar **quando** os dois tipos d
 | Quantos | 4 | 1 |
 | Quem cria | O servidor, de verdade | O atacante |
 | Quando aparece | No início, como resposta ao bypass (passo 2) | No final, depois de já ter a chave (passo 4) |
-| Para que serve | É só matéria-prima — usado para calcular a chave via MDC, não dá acesso sozinho | É o produto final do ataque — é ele que engana o servidor e libera a flag |
+| Para que serve | É só matéria-prima usada para calcular a chave via MDC, não dá acesso sozinho | É o produto final do ataque, é ele que engana o servidor e libera a flag |
 
-Os 4 tokens legítimos não dão acesso a nada sozinhos — eles só fornecem a "munição matemática" (a chave). Só depois de ter essa chave é que o único token forjado é fabricado, e é ele quem realmente quebra a segurança do servidor.
+Os 4 tokens legítimos não dão acesso a nada sozinhos, eles só fornecem a chave. Só depois de ter essa chave é que o único token forjado é fabricado, e é ele que realmente quebra a segurança do servidor.
 
-### 2.1 Vulnerabilidade JPV 
+### 2.1 Bypass da validação de entrada (`jpv`)
 
 A biblioteca jpv é utilizada para realizar a validação das entradas fornecidas pelo usuário com base em padrões previamente estabelecidos. 
 
@@ -105,12 +99,12 @@ const pattern = {
 Entretanto, na linha 42 do arquivo `checkin.js`, há uma verificação que avalia se o campo `data["extras"][e]["sssr"]` possui o valor `"FQTU"`. Quando essa condição é satisfeita, a aplicação gera e expõe um token JWT: 
 
 ```javascript
-for (const e in data['extras']) {
-  if (data['extras'][e]['sssr'] && data['extras'][e]['sssr'] === 'FQTU') {
-    var token = createToken(data['passport'], data['ffp']);
-    var response = { msg: 'Checked in and marked for upgrade.', token: token };
-  }
-}
+      for (const e in data['extras']) {
+        if (data['extras'][e]['sssr'] && data['extras'][e]['sssr'] === 'FQTU') {
+          var token = createToken(data['passport'], data['ffp']);
+          var response = { msg: 'Checked in and marked for upgrade.', token: token };
+        }
+      }
 ```
 Para atender a essa condição e contornar a validação realizada pela `biblioteca jpv`, explora-se a vulnerabilidade descrita no issue #6 do projeto. A validação do campo extras utiliza um padrão que espera um array de objetos contendo o atributo sssr, cujo valor deve corresponder a uma das opções permitidas: `BULK, UMNR ou VGML.` 
 
@@ -137,10 +131,9 @@ Foi utilizado o payload:
 
 Dessa forma, foi possível obter diferentes `tokens JWT` mediante a alteração dos valores dos campos `passport` ou `ffp`. 
 
- 
-### 2.2 Bypass do filtro de validação (`jpv`)
+### 2.2 Confusão de algoritmo RS256 → HS256 (`jwt-simple`)
 
-O JWT possui, em seu cabeçalho `(header)`, o campo `alg`, responsável por indicar o algoritmo utilizado para a assinatura do token, como `RS256` ou `HS256`. O algoritmo `RS256` utiliza criptografia assimétrica baseada em `RSA`, empregando uma chave privada para realizar a assinatura e uma chave pública para sua verificação. Já o `HS256` utiliza o mecanismo `HMAC-SHA256`, baseado em uma chave secreta compartilhada entre as partes. No contexto deste desafio, o algoritmo empregado originalmente é o `RS256`, conforme pode ser observado na implementação da função `createToken` presente no arquivo checkin.js: 
+O JWT possui, em seu cabeçalho `(header)`, o campo `alg`, responsável por indicar o algoritmo utilizado para a assinatura do token. No contexto deste desafio, o algoritmo empregado originalmente é o `RS256`, conforme pode ser observado na implementação da função `createToken` presente no arquivo checkin.js: 
 
 ```javascript
 function createToken(passport, frequentFlyerNumber) { 
@@ -150,7 +143,7 @@ function createToken(passport, frequentFlyerNumber) {
 }
 ```
 
-Entretanto, no arquivo `upgrade.js`, o token é decodificado por meio da seguinte implementação:
+No entanto, no arquivo `upgrades.js`, o token é decodificado sem que o algoritmo seja explicitamente restringido:
 
 ```javascript
 function getLoyaltyStatus(req, res, next) { 
@@ -167,13 +160,24 @@ function getLoyaltyStatus(req, res, next) {
 }
 ```
 
-Em contrapartida, no arquivo `upgrade.js`, a função `jwt.decode(token, key)` é utilizada sem que o algoritmo de assinatura seja explicitamente restringido. Nesse processo, a chave fornecida corresponde a `config.pubkey`, ou seja, à chave pública utilizada na verificação dos tokens. 
+A biblioteca `jwt-simple` usa o algoritmo **declarado no header do próprio token** (`header.alg`) para decidir como verificar a assinatura em vez de um algoritmo fixo esperado pelo servidor. Isso abre espaço para a confusão de algoritmos:
 
-Na versão `jwt-simple@0.5.2`, quando o token especifica `HS256` no campo `alg`, a biblioteca interpreta a chave fornecida como um segredo simétrico e realiza a verificação por meio do `HMAC-SHA256. Dessa forma, não há uma validação adequada da compatibilidade entre o algoritmo declarado no token e o tipo de chave utilizado na verificação. 
+- **RS256** (assimétrico): assina com a chave **privada**, verifica com a **pública**.
+- **HS256** (simétrico): assina **e** verifica com a **mesma** chave secreta.
 
-Consequentemente, caso a chave pública seja conhecida ou possa ser reconstruída, torna-se possível criar um JWT cujo algoritmo declarado seja `HS256`  e utilizar a própria chave pública, em formato PEM, como segredo para gerar a assinatura `HMAC-SHA256`. Durante a validação, o servidor utilizará a mesma config.pubkey e seguirá o algoritmo indicado no cabeçalho do token, permitindo que a assinatura seja considerada válida. Esse comportamento caracteriza uma confusão de algoritmos `(algorithm confusion)`, na qual uma chave destinada à verificação de uma assinatura assimétrica `(RS256)` é reutilizada como segredo em um mecanismo de assinatura simétrica `(HS256)`. 
+Na versão `jwt-simple@0.5.2`, quando o token especifica `HS256` no campo `alg`, a biblioteca interpreta a chave fornecida como um segredo simétrico e realiza a verificação por meio do HMAC-SHA256. Não há validação da compatibilidade entre o algoritmo declarado no token e o tipo de chave utilizado na verificação. 
 
-Na etapa seguinte, os quatro tokens obtidos anteriormente são utilizados para auxiliar na reconstrução da chave pública RSA. No esquema `RS256`, após o processamento criptográfico do cabeçalho e do payload do JWT e a aplicação do padding conforme o padrão `PKCS#1 v1.5`, obtém-se o valor que será representado por `pt`. A assinatura `RSA` é então relacionada a esse valor por meio da operação modular característica do algoritmo: 
+Consequentemente, se o atacante mudar o header para `"alg":"HS256"` e assinar o token usando a **chave pública** como se fosse o segredo HMAC, o servidor ao decodificar usa essa mesma chave pública, mas agora como segredo HMAC. Esse comportamento caracteriza uma confusão de algoritmos _(algorithm confusion)_, catalogada como **CVE-2017-11424**.
+
+**A condição que falta:** o atacante precisa conhecer a chave pública, e ela nunca é exposta diretamente pela aplicação. Entretanto, podemos realizar a recuperação dela utilizando MDC, como descrito na seção 2.3.
+
+### 2.3 Recuperação da chave pública via MDC (GCD)
+
+Uma assinatura RSA satisfaz: `assinatura^e ≡ mensagem_com_padding (mod N)`.
+
+Isso significa que `assinatura^e - mensagem_com_padding` é **um múltiplo exato de N**. Calculando essa conta para **várias assinaturas diferentes** (mesma chave), todos os resultados são múltiplos de `N` — e o **MDC** entre eles tende a isolar justamente `N`.
+
+No esquema `RS256`, após o processamento criptográfico do cabeçalho e do payload do JWT e a aplicação do padding conforme o padrão `PKCS#1 v1.5`, obtém-se o valor que será representado por `pt`. A assinatura `RSA` é então relacionada a esse valor por meio da operação modular:
 
 `sig == pt^d (mod n)  // d = expoente privado` 
 
@@ -203,45 +207,12 @@ Com a chave pública reconstruída, torna-se possível elaborar o token final. P
 
 `{"alg": "HS256", "typ": "JWT"}`
 
-
-### 2.3 Confusão de algoritmo RS256 → HS256
-
-Código-fonte real do endpoint de verificação (`routes/upgrades.js`):
-
-```javascript
-function getLoyaltyStatus(req, res, next) {
-  if (req.headers.authorization) {
-    let token = req.headers.authorization.split(' ')[1];
-    var decoded = jwt.decode(token, config.pubkey); // sem especificar o algoritmo!
-    res.locals.token = decoded;
-  }
-  next();
-}
-```
-
-A biblioteca `jwt-simple` usa o algoritmo **declarado no header do próprio token** (`header.alg`) para decidir como verificar a assinatura — em vez de um algoritmo fixo esperado pelo servidor.
-
-- **RS256** (assimétrico): assina com a chave **privada**, verifica com a **pública**.
-- **HS256** (simétrico): assina **e** verifica com a **mesma** chave secreta.
-
-Se o atacante muda o header para `"alg":"HS256"` e assina o token usando a **chave pública** como se fosse o segredo HMAC, o servidor
-— ao decodificar — usa essa mesma chave pública, mas agora como segredo HMAC, e a verificação **bate**. É a vulnerabilidade catalogada como **CVE-2017-11424**.
-
-**A condição que falta:** o atacante precisa conhecer a chave pública — e ela nunca é exposta diretamente pela aplicação. Daí a necessidade da Seção 2.4.
-
-### 2.4 Recuperando a chave pública via MDC (GCD)
-
-Uma assinatura RSA satisfaz: `assinatura^e ≡ mensagem_com_padding (mod N)`.
-
-Isso significa que `assinatura^e - mensagem_com_padding` é **um múltiplo exato de N**. Calculando essa conta para **várias assinaturas diferentes** (mesma chave), todos os resultados são múltiplos de `N` — e o **MDC (GCD)** entre eles tende a isolar justamente `N`.
-
 **Detalhe descoberto durante a implementação:** usando **apenas 2**
-assinaturas, o GCD pode trazer um **fator espúrio extra** compartilhado por coincidência entre as duas (na nossa primeira tentativa, um fator `93 = 3×31`). A solução: usar **4 tokens** e calcular o **GCD cumulativo** — fatores espúrios tendem a não se repetir simultaneamente em todos os pares.
+assinaturas, o GCD pode trazer um **fator espúrio extra** compartilhado por coincidência entre as duas (na nossa primeira tentativa, um fator `93 = 3×31`). A solução: usar **4 tokens** e calcular o **MDC cumulativo**, os fatores espúrios tendem a não se repetir simultaneamente em todos os pares.
 
-### 2.5 Fechando com uma política de algoritmos permitidos (mitigação)
+### 2.4 Mitigação — política de algoritmos permitidos
 
-A causa raiz de toda a cadeia (Seção 2.3) é o servidor **confiar no próprio token** para decidir como verificá-lo. A correção não exige trocar de biblioteca — o `jwt-simple` já aceita um algoritmo forçado
-como argumento:
+A causa raiz de toda a cadeia (Seção 2.2) é o servidor **confiar no próprio token** para decidir como verificá-lo. A correção não exige trocar de biblioteca — o `jwt-simple` já aceita um algoritmo forçado como argumento:
 
 ```javascript
 // routes/upgrades.js (ORIGINAL, vulnerável):
@@ -257,8 +228,7 @@ No código-fonte do `jwt-simple` (`lib/jwt.js`):
 var signingMethod = algorithmMap[algorithm || header.alg];
 ```
 
-Passar `'RS256'` como 4º argumento faz esse valor **vencer** o que está escrito no header do token — ou seja, o servidor sempre verifica como RS256, **não importa o que o atacante declare** no `alg`. Um
-token forjado com `alg: HS256` é avaliado como se fosse RS256, a assinatura HMAC forjada falha na verificação RSA, e o token é rejeitado — **antes** de qualquer possibilidade de confusão de algoritmo.
+Passar `RS256` como 4º argumento faz esse valor **vencer** o que está escrito no header do token — ou seja, o servidor sempre verifica como RS256, **não importa o que o atacante declare** no `alg`. Um token forjado com `alg: HS256` é avaliado como se fosse RS256, a assinatura HMAC forjada falha na verificação RSA, e o token é rejeitado — **antes** de qualquer possibilidade de confusão de algoritmo.
 
 Implementamos essa correção como uma rota **paralela**
 (`/upgrades-seguro/flag`), ao lado da vulnerável (`/upgrades/flag`), para poder comparar o comportamento das duas contra o **mesmo** token forjado (evidência na Seção 10.3).
@@ -269,8 +239,19 @@ Implementamos essa correção como uma rota **paralela**
 
 ### 3.1 JSON Web Token (JWT)
 
-- **Estrutura de um JWT:** `header.payload.assinatura`, cada parte
-  em Base64url.
+JSON Web Token (JWT) é um padrão aberto (RFC 7519) que define um formato compacto e autossuficiente para transmitir informações entre partes de forma verificável. É amplamente utilizado em mecanismos de autenticação e autorização em aplicações Web.
+
+Um JWT é composto por três partes, separadas por pontos (`.`) e codificadas em Base64url:
+
+```
+header.payload.assinatura
+```
+
+- **Header (cabeçalho):** contém metadados sobre o token, principalmente o campo `alg`, que indica o algoritmo utilizado para gerar a assinatura (por exemplo, `RS256` ou `HS256`), e o campo `typ`, que identifica o tipo do token (`JWT`).
+- **Payload (conteúdo):** carrega as _claims_, ou seja, os dados propriamente ditos que se deseja transmitir como identidade do usuário, permissões ou status. No contexto deste desafio, o payload contém `{"status": "bronze", "ffp": "..."}`.
+- **Signature (assinatura):** garante a integridade e autenticidade do token. É calculada sobre o conteúdo codificado do header e do payload (`base64url(header).base64url(payload)`), utilizando o algoritmo declarado no header e uma chave secreta ou privada.
+
+A segurança do JWT depende fundamentalmente de dois fatores: a **confidencialidade da chave** usada na assinatura e a **validação correta do algoritmo** pelo servidor no momento da verificação. Se o servidor não restringir explicitamente qual algoritmo aceita, ele fica vulnerável a ataques de confusão de algoritmo. Esse é o cenário explorado neste desafio.
 
 ### 3.2 Algoritmos de Assinatura (RS256 vs HS256)
 
@@ -283,18 +264,16 @@ O nome pode ser entendido como:
 
 Assim, `RS256 = RSA + SHA-256`. 
 
-Como funciona? 
-
 O RS256 utiliza um par de chaves:
 
-`Chave privada`: utilizada para assinar o JWT.  
-`Chave pública`: utilizada para verificar a assinatura. 
+- Chave privada: utilizada para assinar o JWT.  
+- Chave pública: utilizada para verificar a assinatura. 
+
+Essa separação de papéis é a principal vantagem do RS256: a chave pública pode ser distribuída livremente sem comprometer a capacidade de gerar assinaturas, que permanece exclusiva do detentor da chave privada.
 
 **HS256:** 
 
 É um algoritmo utilizado para assinar tokens JWT, garantindo a integridade e autenticidade do conteúdo do token. 
-
-O que significa HS256? 
 
 O nome pode ser entendido assim: 
 `HS → HMAC`, mecanismo utilizado para gerar a assinatura.  
@@ -302,14 +281,58 @@ O nome pode ser entendido assim:
 
 Diferentemente do `RS256`, o `HS256` utiliza uma única chave secreta tanto para gerar quanto para verificar a assinatura. 
 
+**Comparação e implicações de segurança:**
+
+| Propriedade | RS256 (assimétrico) | HS256 (simétrico) |
+|---|---|---|
+| Tipo de chave | Par de chaves (privada + pública) | Chave secreta única |
+| Quem assina | Somente quem possui a chave privada | Qualquer parte que conheça o segredo |
+| Quem verifica | Qualquer parte que possua a chave pública | Qualquer parte que conheça o segredo |
+| Risco se a chave de verificação vazar | Nenhum, pois a chave pública é por definição, pública | Total, pois quem possui o segredo pode criar tokens falsos |
+
+A última linha da tabela é a essência da vulnerabilidade explorada neste desafio: quando um servidor usa RS256, a chave de verificação (pública) **não é um segredo**. Se o servidor aceitar que o token troque o algoritmo para HS256, ele passa a usar essa mesma chave pública como segredo HMAC, portanto, qualquer um que conheça a chave pública pode criar tokens válidos.
+
 ### 3.3 Criptografia RSA e PKCS#1 v1.5
 
-- **RSA (nível conceitual):** chave pública `(N, e)`, chave privada `d`; assinar é `mensagem^d mod N`, verificar é `assinatura^e mod N`.
-- **PKCS#1 v1.5:** formatação aplicada à mensagem antes de assinar com RSA — inclui um identificador fixo do algoritmo de hash (SHA-256) e um preenchimento de bytes `0xFF`.
+**RSA (nível conceitual):** o algoritmo RSA baseia-se na dificuldade de fatorar números inteiros muito grandes. Os componentes principais são:
+
+- **Chave pública** `(N, e)`: `N` é o módulo (produto de dois primos grandes), `e` é o expoente público (tipicamente `65537`).
+- **Chave privada** `d`: o expoente privado, mantido em sigilo.
+- **Assinar:** calcular `assinatura = mensagem^d mod N`.
+- **Verificar:** calcular `mensagem_verificada = assinatura^e mod N` e comparar com a mensagem original.
+
+A segurança depende do fato de que, conhecendo apenas `(N, e)`, não é computacionalmente viável derivar `d` — a menos que se consiga fatorar `N`.
+
+**PKCS#1 v1.5 (padding de assinatura):** antes de aplicar a operação RSA, a mensagem precisa ser formatada segundo o padrão PKCS#1 v1.5 (RFC 3447, seção 9.2). O formato do bloco é:
+
+```
+0x00 0x01 [FF FF ... FF] 0x00 [DigestInfo]
+```
+
+Onde `DigestInfo` é uma estrutura ASN.1 que inclui um identificador fixo do algoritmo de hash (SHA-256) seguido do hash da mensagem. O preenchimento com bytes `0xFF` garante que o bloco ocupe exatamente o mesmo número de bytes que o módulo `N`.
+
+Essa formatação é relevante para o ataque porque a função `magic()` (Seção 2.3) precisa reproduzir **exatamente** esse padding ao calcular `sig^e - padded_msg`. Qualquer divergência no formato torna o cálculo do GCD inviável.
 
 ### 3.4 MDC/GCD na Criptoanálise
 
-- **MDC/GCD aplicado a criptoanálise:** mesmo "espírito" do CRT usado no desafio Share (E1) — usar múltiplas equações relacionadas para extrair um segredo, mas aqui via máximo divisor comum em vez de reconstrução por congruências.
+O Máximo Divisor Comum (MDC, ou GCD em inglês) é uma ferramenta recorrente em criptoanálise. O princípio geral é: quando múltiplas equações compartilham um fator desconhecido comum, o GCD entre os resultados tende a isolar esse fator.
+
+No contexto deste desafio, a aplicação é direta. Cada assinatura RSA válida satisfaz:
+
+`sig^e ≡ padded_msg (mod N)`
+
+Portanto, `sig^e - padded_msg` é um **múltiplo exato de N**. Calculando esse valor para múltiplas assinaturas diferentes (geradas com a mesma chave), todos os resultados são múltiplos de `N`:
+
+```
+magic_1 = sig_1^e - padded_msg_1 = k₁·N
+magic_2 = sig_2^e - padded_msg_2 = k₂·N
+magic_3 = sig_3^e - padded_msg_3 = k₃·N
+...
+```
+
+O GCD cumulativo desses valores tende a isolar justamente `N`, já que os coeficientes `k₁, k₂, k₃...` são diferentes e, em geral, não compartilham fatores em comum.
+
+Essa técnica faz uso do mesmo princípio do Teorema do Resto Chinês (CRT) abordado no desafio Share (E1). O qual se utiliza de múltiplas equações relacionadas para extrair um segredo. Entretanto, agora utilizando o MDC (máximo divisor comum) ao invés de reconstrução por congruências.
 
 ---
 
@@ -369,8 +392,8 @@ As bibliotecas usadas são intencionalmente desatualizadas, pois são elas que c
 
 O grupo executou `npm audit` no projeto e obteve 2 vulnerabilidades relacionadas às bibliotecas `jpv` e `jwt-simple`:
 
-- **`jpv` ≤ 2.2.1** — severidade crítica. Corrigido apenas na versão 2.2.2. O bypass foi testado manualmente em 6 versões: funciona na 2.0.1, 2.0.0 e 1.5.1; não funciona na 2.1.0, 2.1.2 e 2.2.2.
-- **`jwt-simple` < 0.5.3** — severidade alta. Corrigido na versão 0.5.3.
+- **`jpv` ≤ 2.2.1** - severidade crítica. Corrigido apenas na versão 2.2.2.
+- **`jwt-simple` < 0.5.3** - severidade alta. Corrigido na versão 0.5.3.
 
 Os detalhes técnicos de cada vulnerabilidade estão na tabela abaixo:
 
@@ -417,20 +440,9 @@ cr0wnair-writeup/
 
 ## 7. Origem dos artefatos e adaptações do grupo
 
-- **Código-fonte da aplicação:** reconstruído a partir do que está
-  publicamente documentado nos write-ups (ret2school, Kalmarunionen,
-  STT/sectt) do Union CTF 2021 - o `source.zip` original não foi
-  reaproveitado diretamente; o código foi digitado/adaptado a partir
-  do que os write-ups reproduzem.
-- **Chave RSA e flag:** geradas do zero pelo grupo
-  (`scripts/gerar_ambiente.js`), nunca reaproveitando os artefatos
-  do desafio original — conforme exigido pelo professor.
-- **Técnica de ataque:** a lógica central (bypass `jpv` + GCD +
-  confusão RS256/HS256) é **conhecida e catalogada** como
-  **CVE-2017-11424**, com uma ferramenta pública completa
-  (`rsa_sign2n`, da Silent Signal) já implementando exatamente esse
-  ataque. **Não usamos essa ferramenta como dependência**, toda a
-  matemática foi reimplementada do zero em Python puro (ver Seção 8).
+- **Código-fonte da aplicação:** reconstruído a partir do que está publicamente documentado nos write-ups (ret2school, Kalmarunionen, STT/sectt) do Union CTF 2021 - o `source.zip` original não foi reaproveitado diretamente; o código foi digitado/adaptado a partir do que os write-ups reproduzem.
+- **Chave RSA e flag:** geradas do zero pelo grupo (`scripts/gerar_ambiente.js`), nunca reaproveitando os artefatos do desafio original — conforme exigido pelo professor.
+- **Técnica de ataque:** a lógica central (bypass `jpv` + GCD + confusão RS256/HS256) é **conhecida e catalogada** como **CVE-2017-11424**, com uma ferramenta pública completa (`rsa_sign2n`, da Silent Signal) já implementando exatamente esse ataque. **Não usamos essa ferramenta como dependência**, toda a matemática foi reimplementada do zero em Python puro (ver Seção 8).
 
 ---
 
@@ -441,7 +453,7 @@ outro para o ataque.
 
 ### Linux / macOS
 
-**Terminal 1 — subir a aplicação-alvo:**
+**Terminal 1 - subir a aplicação-alvo:**
 
 ```bash
 cd app
@@ -452,7 +464,7 @@ node app.js
 
 Deve aparecer: `cr0wnair (reimplementacao) rodando na porta 3000`.
 
-**Terminal 2 — rodar o ataque:**
+**Terminal 2 - rodar o ataque:**
 
 ```bash
 cd exploit
@@ -469,7 +481,7 @@ python3 ataque_real.py
 
 ### Windows (PowerShell)
 
-**Terminal 1 — subir a aplicação-alvo:**
+**Terminal 1 - subir a aplicação-alvo:**
 
 ```powershell
 cd app
@@ -478,7 +490,7 @@ node ../scripts/gerar_ambiente.js
 node app.js
 ```
 
-**Terminal 2 — rodar o ataque:**
+**Terminal 2 - rodar o ataque:**
 
 ```powershell
 cd exploit
@@ -531,7 +543,7 @@ demonstrar o ataque sem precisar do Node.js rodando.
   `/upgrades/flag` (vulnerável) e `/upgrades-seguro/flag`
   (corrigido) — evidência lado a lado na Seção 10.3.
 
-### `routes/upgrades_seguro.js` (mitigação, Seção 2.5)
+### `routes/upgrades_seguro.js` (mitigação, Seção 2.4)
 
 Idêntica a `upgrades.js`, com uma única linha alterada: o algoritmo
 é passado explicitamente para `jwt.decode()`, em vez de deixar o
@@ -621,7 +633,7 @@ ponta a ponta, não apenas em teoria.
 ### 10.3 — Mitigação: mesmo token forjado, contra o endpoint corrigido
 
 Executando `ataque_real.py` (versão estendida) contra o servidor
-real, com a rota `/upgrades-seguro/flag` (Seção 2.5) montada em
+real, com a rota `/upgrades-seguro/flag` (Seção 2.4) montada em
 paralelo à vulnerável:
 
 ```
@@ -636,7 +648,7 @@ Resposta do endpoint CORRIGIDO (/upgrades-seguro/flag) ao MESMO token forjado:
 diferença é a linha `jwt.decode(token, config.pubkey, false,
 'RS256')` na rota corrigida. Isso comprova que a causa raiz da
 vulnerabilidade é especificamente a ausência de uma política de
-algoritmos permitidos, e que a correção proposta (Seção 2.5) resolve
+algoritmos permitidos, e que a correção proposta (Seção 2.4) resolve
 exatamente esse problema, sem quebrar o fluxo legítimo (tokens
 RS256 reais continuam sendo aceitos normalmente).
 
@@ -674,7 +686,7 @@ resultado idêntico.
   Windows), por dois membros diferentes do grupo, de forma
   independente.
 - **Mitigação implementada e testada lado a lado com a
-  vulnerabilidade** (Seção 2.5 e 10.3) — não apenas descrita em
+  vulnerabilidade** (Seção 2.4 e 10.3) — não apenas descrita em
   texto: uma rota corrigida real (`upgrades_seguro.js`) rodando no
   mesmo servidor, comprovando que o mesmo ataque que funciona contra
   a rota original falha contra a corrigida.
@@ -702,24 +714,23 @@ eram de fato esperadas.
 ## 13. Referências
 
 - Código-fonte e mecânica do desafio: write-up de **ret2school**,
-  *"[UnionCTF 2021 — web] Cr0wnAir"* — inclui o código-fonte
+  *"[UnionCTF 2021 - web] Cr0wnAir"* ([ret2school.github.io](https://ret2school.github.io/)) - inclui o código-fonte
   reproduzido de `routes/checkin.js` e `routes/upgrades.js`.
 - Técnica de recuperação de `N` via GCD: write-up de
-  **Kalmarunionen** (Nicolai Søborg), *"Union CTF 2021: Cr0wnAir"* —
+  **Kalmarunionen** (Nicolai Søborg), *"[Union CTF 2021: Cr0wnAir](https://www.kalmarunionen.dk/writeups/2021/union-ctf-2021/cr0wnair/)"* ([CTFtime](https://ctftime.org/writeup/26173)) -
   inclui a implementação de referência em Python com `gmpy2`.
-- Write-up adicional consultado: **STT/sectt** (IST), *"cr0wnair —
-  Union CTF 2021"*.
-- Write-up adicional consultado: **qxxxb/ARESx**, *"Cr0wnAir"*
-  (CTFtime) — confirma independentemente as versões `jpv@2.0.1` e
+- Write-up adicional consultado: **STT/sectt** (IST), *"[cr0wnair - Union CTF 2021](https://sectt.github.io/writeups/UnionCTF21/web_cr0wnair/README)"* ([CTFtime](https://ctftime.org/writeup/26207)).
+- Write-up adicional consultado: **qxxxb/ARESx**, *"[Cr0wnAir](https://ctftime.org/writeup/26061)"*
+  (CTFtime) - confirma independentemente as versões `jpv@2.0.1` e
   `jwt-simple@0.5.2`.
-- Vulnerabilidade catalogada: **CVE-2017-11424** (confusão de
-  algoritmo RS256/HS256 em bibliotecas JWT).
-- Ferramenta pública de referência (não usada como dependência):
-  **`rsa_sign2n`**, Silent Signal — *"Abusing JWT Public Keys
-  Without the Public Key"*.
-- Biblioteca vulnerável: **`jpv`** (versões testadas: 1.5.1 a 3.1.2;
-  bypass confirmado até a 2.0.1, corrigido a partir da 2.1.0).
-- Biblioteca vulnerável: **`jwt-simple`** versão 0.5.1.
+- Desafio original no CTFtime: **[Union CTF 2021 - Cr0wnAir (Task 14728)](https://ctftime.org/task/14728)**.
+- **[CVE-2017-11424](https://nvd.nist.gov/vuln/detail/CVE-2017-11424)** - Confusão de algoritmo RS256/HS256 em bibliotecas JWT (falha de implementação na verificação de assinatura).
+- **[CVE-2016-10555](https://nvd.nist.gov/vuln/detail/CVE-2016-10555)** - `jwt-simple`: `jwt.decode()` não restringe o algoritmo esperado pelo servidor e confia no cabeçalho do token (corrigido na v0.5.3).
+- **[CVE-2019-19507](https://nvd.nist.gov/vuln/detail/CVE-2019-19507)** - `jpv`: falha de validação aceita objetos manipulados com `constructor.name = 'Array'` (issue [#6](https://github.com/mankhn/jpv/issues/6)).
+- **[CVE-2020-17479](https://nvd.nist.gov/vuln/detail/CVE-2020-17479)** - `jpv`: correção incompleta da CVE-2019-19507 na v2.1.1 permitindo novo contorno (issue [#10](https://github.com/mankhn/jpv/issues/10); corrigido em definitivo na v2.2.2).
+- **[`rsa_sign2n`](https://github.com/silentsignal/rsa_sign2n)**, Silent Signal - *"Abusing JWT Public Keys Without the Public Key"* (ferramenta pública de referência para a CVE-2017-11424).
+- **[`jpv`](https://github.com/mankhn/jpv)** no [npm](https://www.npmjs.com/package/jpv) - Json Pattern Validator (versões testadas: 1.5.1 a 3.1.2; vulnerável até a 2.0.1, corrigido definitivamente na 2.2.2).
+- **[`jwt-simple`](https://github.com/hokaccha/node-jwt-simple)** no [npm](https://www.npmjs.com/package/jwt-simple) - Módulo de codificação e decodificação JWT para Node.js (vulnerável em versões < 0.5.3).
 
 ---
 
